@@ -7,8 +7,9 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <queue>
+#include <memory>
 
-constexpr auto ENTITY_SIZE = 10000;
+constexpr auto ENTITY_SIZE = 100000;
 constexpr auto COMPONENT_SIZE = 50;
 
 using Entity = std::uint32_t;
@@ -16,9 +17,9 @@ using Component = std::uint32_t;
 using BasicView = std::vector<Entity>;
 
 class EntityIdPool {
-private:
-	std::queue<Entity> freeIds;
+
 public:
+	std::queue<Entity> freeIds;
 	Entity counter;
 
 	EntityIdPool() {
@@ -40,24 +41,26 @@ public:
 
 class ComponentIdPool {
 public:
-	ComponentIdPool() : components(50) {
+	ComponentIdPool() : components(COMPONENT_SIZE) {
 		counter = 0;
 	}
+
+	bool isComponent(std::string name) {
+		for (int x = 0; x < COMPONENT_SIZE; ++x) {
+			if (components[x] == name) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	Component tryGetId(std::string name) {
-		/*auto ite = components.find(name);
-		if (ite != components.end()) {
-			return ite->second;
-		} else {
-			auto id = ++counter;
-			components[name] = id;
-			return id;
-		}*/
-		for (int x = 0; x < 50; ++x) {
+		for (int x = 0; x < COMPONENT_SIZE; ++x) {
 			if (components[x] == name) {
 				return x;
 			}
 		}
-		auto id = counter++;		
+		auto id = counter++;
 		components[id] = name;
 		return id;
 	}
@@ -67,71 +70,148 @@ private:
 };
 
 
-class ComponentPool {
+class EntitySet {
 public:
-	ComponentPool() : objects(ENTITY_SIZE){}
-	std::vector<void*> objects;
+	std::vector<Entity> in;
+	EntitySet() : entities(ENTITY_SIZE){
+		counter = 0;
+	}
+
+	int index(Entity entity) {
+		return entities[entity];
+	}
+	
+	void assure(Entity entity) {
+		if (entities[entity] == 0) {
+			entities[entity] = ++counter;
+			in.push_back(entity);
+		}
+	}
+
+	bool entityIn(Entity entity){
+		return entities[entity] != 0;
+	}
+
+	int size() {
+		return counter;
+	}
+
+private:
+	int counter;
+	std::vector<int> entities;	
 };
 
 
-class ECS {
-public:	
+template <typename Type>
+class PoolHandler : public EntitySet {
+public:
+	Type & get(Entity entity) {
+		return instances[EntitySet::index(entity)];
+	}
 
-	ECS() : componentPool(COMPONENT_SIZE) {
+	void assign(Entity entity, Type type) {
+		this->assure(entity);
+		auto index = EntitySet::index(entity);
+		if (instances.size() <= index) {
+			instances.resize(index + 1);
+		}
+		instances[index] = type;
+	}
+
+private:
+	std::vector<Type> instances;
+};
+
+struct PoolData {
+	EntitySet* pool;
+};
+
+class ECS {
+public:
+
+	ECS() {
+
+	}
+
+	~ECS() {
+		for (auto po : pool) {
+			delete po.pool;
+		}
 	}
 
 	Entity create() {
 		return entityIdPool.generateId();
 	}
 
-	template <typename Type>
-	void assign(int entity, void* object) {		
-		componentPool[getComponent<Type>()].objects[entity] = object;
+	int entityCount() {
+		return entityIdPool.counter - entityIdPool.freeIds.size();
+	}
+
+	bool assigned(int entity, Component component) {
+		return false;
 	}
 
 	template <typename Type>
-	Component getComponent() {		
+	bool assigned(int entity) {
+	//	return componentPool[getComponent<Type>()].objects[entity] != nullptr;
+		return false;
+	}
+
+	template <typename Type>
+	void assign(int entity, Type instance) {
+		auto comp = getComponent<Type>();
+		this->assure<Type>(comp).assign(entity, instance);
+	}
+
+	template <typename Type>
+	Component getComponent() {
 		return getComponent(typeid(Type).name());
 	}
 
 	Component getComponent(std::string name) {
 		return componentIdPool.tryGetId(name);
 	}
+
+	bool isComponent(std::string name) {
+		return componentIdPool.isComponent(name);
+	}
+
+	template <typename Type>
+	void assign(Entity entity, int component, Type object) {
+
 		
-	void assign(Entity entity, int component, void* object) {
-		componentPool[component].objects[entity] = object;
-	}
 
-	template <typename T>
-	void listComponents(std::vector<int>& vcomp, T component) {
-		vcomp.push_back(component);
-	}
-
-	template <typename T, typename... Args>
-	void listComponents(std::vector<int> &vcomp, T component, Args... components) {
-		vcomp.push_back(component);
-		listComponents(vcomp, components...);
+		// componentPool[component].objects[entity] = object;
 	}
 
 	void destroy(Entity entity) {
-		for (auto x = 0; x < 2; ++x) {
-			auto component = componentPool[x].objects[entity];
-			componentPool[x].objects[entity] = nullptr;
-			if (component != nullptr) {
-				delete component;
-			}
-		}
+		//for (auto x = 0; x < COMPONENT_SIZE; ++x) {
+		//	auto component = componentPool[x].objects[entity];
+		//	componentPool[x].objects[entity] = nullptr;
+		//	if (component != nullptr) {
+		//		//toDelete.push(component);				
+		//	}
+		//}
 		entityIdPool.freeEntity(entity);
 	}
 
-	template <typename T>
-	T* get(Entity entity) {
-		return this->get<T>(entity, componentIdPool.tryGetId(typeid(T).name()));
+	template <typename Type>
+	Type& get(Entity entity) {
+
+		auto component = componentIdPool.tryGetId(typeid(Type).name());
+
+		return this->assure<Type>(component).get(entity);
+		//return this->get<T>(entity, );
 	}
 
-	template <typename T>
-	T* get(Entity entity, Component component) {
-		return static_cast<T*>(componentPool[component].objects[entity]);
+	template <typename Type>
+	Type & get(Entity entity, Component component) {
+		return this->assure<Type>(component).get(entity);
+	}
+
+	void* get(Entity entity, Component component) {
+		//return pool[component].objects[entity];
+		return nullptr;
 	}
 
 	template <typename T>
@@ -140,93 +220,108 @@ public:
 	}
 
 	bool remove(Entity entity, Component component) {
-		auto comp = componentPool[component].objects[entity];
-		componentPool[component].objects[entity] = nullptr;
+		/*auto comp = pool[component].objects[entity];
+		pool[component].objects[entity] = nullptr;
 		if (comp != nullptr) {
-			delete comp;
+			toDelete.push(comp);
 			return true;
-		}
+		}*/
 		return false;
 	}
 
 	template <typename Type>
-	void sort(BasicView &basicBiew, std::function<bool(Type*, Type*)> predicate) {
+	void sort(BasicView& basicBiew, std::function<bool(Type*, Type*)> predicate) {
 		auto component = getComponent<Type>();
 		std::sort(basicBiew.begin(), basicBiew.end(), [this, component, &predicate](auto v1, auto v2) {
 			return predicate(this->get<Type>(v1, component), this->get<Type>(v2, component));
 		});
 	}
 
-	template <typename... Args>
-	BasicView viewx(Args... components) {
-		std::vector<int> comps;
-		BasicView entities;
-		listComponents(comps, components...);
-		if (comps.size() > 1) {
-			auto first = componentPool[comps[0]].objects;
-			for (Entity ent = 0; ent < entityIdPool.counter; ++ent) {
-				bool found = false;
 
-				if (first[ent] == nullptr) continue;
-
-				for (int comp = 1; comp < comps.size(); ++comp) {
-					if (componentPool[comps[comp]].objects[ent] != nullptr) {
-						found = true;
-					} else {
-						found = false;
-						break;
-					}
-				}
-				if (found) {
-					entities.push_back(ent);
-				}
-			}
-		} else {
-			auto first = componentPool[comps[0]].objects;
-			for (int ent = 0; ent < entityIdPool.counter; ++ent) {
-				if (first[ent] == nullptr) continue;
-				entities.push_back(ent);
-			}
-		}
-		return entities;
+	template <typename T>
+	void listComponents(std::vector<Component>& vcomp, T component) {
+		vcomp.push_back(component);
 	}
 
+	template <typename T, typename... Args>
+	void listComponents(std::vector<Component>& vcomp, T component, Args... components) {
+		vcomp.push_back(component);
+		listComponents(vcomp, components...);
+	}
+
+	template<typename... Components>
+	typename std::enable_if<sizeof...(Components) == 0>::type find(std::vector<Component>& componentIds) {
+	}
+
+
+	template<typename Type, typename... Components>
+	void find(std::vector<Component>& componentIds) {
+		componentIds.push_back(getComponent<Type>());
+		find<Components...>(componentIds);
+	}
+
+	template <typename... Components>
+	BasicView view() {
+		std::vector<Component> componentIds;
+		find<Components...>(componentIds);
+		return internalView(componentIds);
+	}
+
+
 	template <typename... Args>
-	void view(std::function<void(Entity)> predicate, Args... components) {
-		std::vector<int> comps;
+	BasicView view(Args... components) {
+		std::vector<Component> comps;
 		listComponents(comps, components...);
-		if (comps.size() > 1) {
-			auto first = componentPool[comps[0]].objects;
-			for (Entity ent = 0; ent < entityIdPool.counter; ++ent) {
-				bool found = false;
-
-				if (first[ent] == nullptr) continue;
-
-				for (int comp = 1; comp < comps.size(); ++comp) {
-					if (componentPool[comps[comp]].objects[ent] != nullptr) {
-						found = true;
-					} else {
-						found = false;
-						break;
-					}
-				}
-				if (found) {
-					predicate(ent);
-				}
-			}
-		} else {
-			auto first = componentPool[comps[0]].objects;
-			for (int ent = 0; ent < entityIdPool.counter; ++ent) {
-				if (first[ent] == nullptr) continue;
-				predicate(ent);
-			}
-		}		
+		return internalView(comps);
 	}
 
 private:
-	std::vector<ComponentPool> componentPool;
+	mutable std::vector<PoolData> pool;
 	ComponentIdPool componentIdPool;
 	EntityIdPool entityIdPool;
+
+	
+	template <typename Type>
+	PoolHandler<Type> & assure(Component component) {
+		if (pool.size() <= component) {
+			pool.resize(component + 1);
+			pool[component] = { new PoolHandler<Type>()};
+		}
+		return static_cast<PoolHandler<Type>&>(*pool[component].pool);
+	}
+
+	BasicView internalView(std::vector<Component> comps) {		
+
+		if (comps.size() > 1) {
+			BasicView entities;
+			auto first = pool[comps[0]].pool;		
+			auto pos = 0;
+
+			for (int x = 1; x < comps.size(); x++) {
+				if (pool[comps[x]].pool->size() < first->size()) {
+					first = pool[comps[x]].pool;
+					pos = x;
+				}
+			}
+			comps.erase(comps.begin() + pos);
+
+			for (auto entity : first->in) {
+				bool found = true;
+				for (auto comp : comps) {
+					if (!pool[comp].pool->entityIn(entity)) {
+						found = false;
+						break;
+					}
+				}
+				if (found) {
+					entities.push_back(entity);
+				}
+			}
+			return entities;
+		} else {
+			return pool[comps[0]].pool->in;			
+		}
+	}
 };
 
 #endif 
