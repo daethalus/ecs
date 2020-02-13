@@ -4,7 +4,7 @@
 cmake_minimum_required (VERSION 3.8)
 
 # Add source to this project's executable.
-add_executable (ecs "ecs.h" "main.cpp")
+add_executable (ecs "ecs.h" "main.cpp" "ecs_old.h")
 
 set_property (TARGET ${PROJECT_NAME} PROPERTY
     CXX_STANDARD 17

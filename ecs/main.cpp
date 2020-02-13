@@ -1,3 +1,4 @@
+//#include "ecs_old.h"
 #include "ecs.h"
 
 #include <iostream>
@@ -15,41 +16,65 @@ int main() {
 
 	ECS ecs;
 
+	auto component = ecs.getComponent<ComponentTest>();
+	auto anotherComp = ecs.getComponent<Another>();
+
 	auto t0 = std::chrono::high_resolution_clock::now();
 
-	for (int x = 0; x <= 99599; x++) {
+	for (int x = 0; x <= 999999; x++) {
 		auto entity = ecs.create();
-		ecs.assign<ComponentTest>(entity, { x });	
+		ecs.assign<ComponentTest>(entity, component, { x });
+		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
 	}
 
-	for (int x = 0; x <= 100; x++) {
+	for (int x = 0; x <= 5; x++) {
 		auto entity = ecs.create();
-		ecs.assign<ComponentTest>(entity, { x });
-		ecs.assign<Another>(entity, { x % 2 == 0});
+		ecs.assign<ComponentTest>(entity, component, { x });
+		ecs.assign<Another>(entity, anotherComp, { x % 2 == 0 });
+		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
+		//ecs.assign<Another>(entity, new Another{ x % 2 == 0});
 	}
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 
-	auto entities = ecs.view<Another, ComponentTest>();
+	auto entities = ecs.view<ComponentTest, Another>();
 
 	int sum = 0;
-	auto component = ecs.getComponent<ComponentTest>();
 
+	//for (auto entity : entities) {		
+	//	sum = sum + ecs.get<ComponentTest>(entity, component).value;
+	//}
+
+	entities = ecs.view<ComponentTest>();
 	for (auto entity : entities) {
-		ecs.get<ComponentTest>(entity, component).value;
+		ecs.destroy(entity);
 	}
 
+	std::cout << sum << std::endl;
+
 	auto t2 = std::chrono::high_resolution_clock::now();
+
+	
+
+	for (int x = 0; x <= 999999; x++) {
+		auto entity = ecs.create();
+		ecs.assign<ComponentTest>(entity, component, { x });
+		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
+	}
 
 	auto t3 = std::chrono::high_resolution_clock::now();
 
 
 	std::cout << "internal took to instace: "
 		<< std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()
-		<< " milliseconds. to create entities: "
+		<< " milliseconds. to interate: "
 		<< std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
 		<< " milliseconds and "
 		<< std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count()
-		<< " milliseconds to iterate "
+		<< " milliseconds to delete "
 		<< " \n";
+
+	while (true) {
+		_sleep(1000);
+	}
 };
