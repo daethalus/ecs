@@ -29,7 +29,7 @@ public:
 	Entity generateId() {
 		if (freeIds.size() > 0) {
 			auto id = freeIds.back();
-			freeIds.erase(freeIds.end() - 1);
+			freeIds.pop_back();
 			return id;
 		}
 		return counter++;
@@ -83,9 +83,9 @@ public:
 
 	void assure(Entity entity) {
 		if (entities[entity] == 0) {
-			if (freeIds.size() > 0) {
+			if (freeIds.size() > 0) {				
 				entities[entity] = freeIds.back();
-				freeIds.erase(freeIds.end() - 1);
+				freeIds.pop_back();
 			} else {
 				entities[entity] = ++counter;
 			}
@@ -101,14 +101,15 @@ public:
 	}
 
 	virtual void internalRemove(Entity pos, Entity entity) {
-
+	
 	}
 
 	void remove(Entity entity) {
 		auto id = entities[entity];
+		if (id == 0) return;
 		freeIds.push_back(id);
-		internalRemove(id, entity);
 		entities[entity] = 0;
+		internalRemove(id, entity);
 	}
 
 	std::vector<Entity> entities;
@@ -185,17 +186,17 @@ public:
 		return entityIdPool.counter - entityIdPool.freeIds.size();
 	}
 
-	bool assigned(int entity, Component component) {
+	bool assigned(Entity entity, Component component) {
 		return pools[component].pool->entityIn(entity);
 	}
 
 	template <typename Type>
-	bool assigned(int entity) {
+	bool assigned(Entity entity) {
 		return assigned(entity, getComponent<Type>());
 	}
 
 	template <typename Type>
-	void assign(int entity, Type instance) {
+	void assign(Entity entity, Type instance) {
 		auto comp = getComponent<Type>();	
 		this->assure<Type>(comp).assign(entity, instance);
 	}
@@ -220,10 +221,7 @@ public:
 	
 	void destroy(Entity entity) {
 		for (auto x = 0; x < pools.size(); ++x) {
-			auto pool = pools[x].pool;
-			if (pool->entityIn(entity)) {
-				pool->remove(entity);
-			}			
+			pools[x].pool->remove(entity);			
 		}
 		entityIdPool.freeEntity(entity);
 	}
@@ -244,12 +242,8 @@ public:
 		return remove(entity, componentIdPool.tryGetId(typeid(T).name()));
 	}
 
-	bool remove(Entity entity, Component component) {
-		if (pools[component].pool->entityIn(entity)) {
-			pools[component].pool->remove(entity);
-			return true;
-		}
-		return false;
+	void remove(Entity entity, Component component) {
+		pools[component].pool->remove(entity);		
 	}
 
 	template <typename Type>
@@ -284,7 +278,7 @@ public:
 	}
 
 	template <typename... Components>
-	BasicView view() {
+	const BasicView view() {
 		std::vector<Component> componentIds;
 		find<Components...>(componentIds);
 		return internalView(componentIds);
@@ -307,7 +301,7 @@ private:
 	template <typename Type>
 	PoolHandler<Type> & assure(Component component) {
 		if (pools.size() <= component) {
-			pools.resize((int) component + 1);
+			pools.resize(component + 1);
 			pools[component] = { new PoolHandler<Type>()};
 		}
 		return static_cast<PoolHandler<Type>&>(*pools[component].pool);
@@ -316,10 +310,10 @@ private:
 	BasicView internalView(std::vector<Component> comps) {
 		BasicView entities;
 		if (comps.size() > 1) {			
-			auto first = pools[comps[0]].pool;		
+			auto first = pools[comps[0]].pool;
 			auto pos = 0;
 
-			for (int x = 1; x < comps.size(); x++) {
+			for (int x = 1; x < comps.size(); ++x) {
 				if (pools[comps[x]].pool->size() < first->size()) {
 					first = pools[comps[x]].pool;
 					pos = x;

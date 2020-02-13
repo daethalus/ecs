@@ -1,5 +1,5 @@
-//#include "ecs_old.h"
-#include "ecs.h"
+#include "ecs_old.h"
+//#include "ecs.h"
 
 #include <iostream>
 #include <chrono>
@@ -23,44 +23,45 @@ int main() {
 
 	for (int x = 0; x <= 999999; x++) {
 		auto entity = ecs.create();
-		ecs.assign<ComponentTest>(entity, component, { x });
+		//ecs.assign<ComponentTest>(entity, component, { x });
 		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
+	}
+
+	auto entities = ecs.view<ComponentTest>();
+	for (auto entity : entities) {
+		ecs.destroy(entity);
 	}
 
 	for (int x = 0; x <= 5; x++) {
 		auto entity = ecs.create();
-		ecs.assign<ComponentTest>(entity, component, { x });
-		ecs.assign<Another>(entity, anotherComp, { x % 2 == 0 });
+		//ecs.assign<ComponentTest>(entity, component, { x });
+		//ecs.assign<Another>(entity, anotherComp, { x % 2 == 0 });
 		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
 		//ecs.assign<Another>(entity, new Another{ x % 2 == 0});
 	}
 
+	
+
+	for (int x = 0; x <= 999999; x++) {
+		auto entity = ecs.create();
+		//ecs.assign<ComponentTest>(entity, component, { x });
+		ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
+	}
+
 	auto t1 = std::chrono::high_resolution_clock::now();
 
-	auto entities = ecs.view<ComponentTest, Another>();
+	entities = ecs.view<ComponentTest>();
 
 	int sum = 0;
 
-	//for (auto entity : entities) {		
-	//	sum = sum + ecs.get<ComponentTest>(entity, component).value;
-	//}
-
-	entities = ecs.view<ComponentTest>();
-	for (auto entity : entities) {
-		ecs.destroy(entity);
+	for (auto entity : entities) {		
+		sum = sum + ecs.get<ComponentTest>(entity, component)->value;
 	}
 
 	std::cout << sum << std::endl;
 
 	auto t2 = std::chrono::high_resolution_clock::now();
 
-	
-
-	for (int x = 0; x <= 999999; x++) {
-		auto entity = ecs.create();
-		ecs.assign<ComponentTest>(entity, component, { x });
-		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
-	}
 
 	auto t3 = std::chrono::high_resolution_clock::now();
 

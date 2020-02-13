@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <queue>
 
-constexpr auto ENTITY_SIZE = 1010000;
+constexpr auto ENTITY_SIZE = 1080000;
 constexpr auto COMPONENT_SIZE = 50;
 
 using Entity = std::uint32_t;
