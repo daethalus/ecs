@@ -6,12 +6,12 @@
 #include <functional>
 #include <typeinfo>
 #include <unordered_map>
-#include <unordered_set>
 #include <queue>
 #include <memory>
 
-constexpr auto ENTITY_SIZE = 1010000;
+constexpr auto ENTITY_SIZE = 2000000;
 constexpr auto COMPONENT_SIZE = 50;
+constexpr auto NULL_ID = UINT_MAX;
 
 using Entity = std::uint32_t;
 using Component = std::uint32_t;
@@ -56,13 +56,20 @@ public:
 	}
 
 	Component tryGetId(std::string name) {
+		bool generated;
+		return tryGetId(name, generated);
+	}
+
+	Component tryGetId(std::string name, bool& generated) {
 		for (int x = 0; x < COMPONENT_SIZE; ++x) {
 			if (components[x] == name) {
+				generated = false;
 				return x;
 			}
 		}
 		auto id = counter++;
 		components[id] = name;
+		generated = true;
 		return id;
 	}
 private:
@@ -72,8 +79,12 @@ private:
 
 
 class EntitySet {
-public:	
-	EntitySet() : entities(ENTITY_SIZE){
+public:
+	EntitySet() {
+		entities.resize(ENTITY_SIZE);
+		for (auto x = 0; x < entities.size(); x++) {
+			entities[x] = NULL_ID;
+		}
 		counter = 0;
 	}
 
@@ -82,18 +93,18 @@ public:
 	}
 
 	void assure(Entity entity) {
-		if (entities[entity] == 0) {
-			if (freeIds.size() > 0) {				
+		if (entities[entity] == NULL_ID) {
+			if (freeIds.size() > 0) {
 				entities[entity] = freeIds.back();
 				freeIds.pop_back();
 			} else {
-				entities[entity] = ++counter;
+				entities[entity] = counter++;
 			}
 		}
 	}
 
-	bool entityIn(Entity entity){
-		return entities[entity] != 0;
+	bool entityIn(Entity entity) {
+		return entities[entity] != NULL_ID;
 	}
 
 	virtual int size() {
@@ -101,14 +112,15 @@ public:
 	}
 
 	virtual void internalRemove(Entity pos, Entity entity) {
-	
+
 	}
 
 	void remove(Entity entity) {
 		auto id = entities[entity];
-		if (id == 0) return;
+		if (id == NULL_ID) return;
+
 		freeIds.push_back(id);
-		entities[entity] = 0;
+		entities[entity] = NULL_ID;
 		internalRemove(id, entity);
 	}
 
@@ -126,46 +138,90 @@ private:
 template <typename Type>
 struct PoolItem {
 	Entity id;
-	Type instance;
+	std::unique_ptr<Type> instance;
 };
 
 
 template <typename Type>
 class PoolHandler : public EntitySet {
 public:
-	Type & get(Entity entity) {
-		return instances[EntitySet::index(entity)].instance;
+	std::unique_ptr<Type>& get(Entity entity) {
+		auto index = EntitySet::index(entity);
+		if (index > -1) {
+			return instances[index].instance;
+		}		
+		return std::unique_ptr<Type>();
 	}
 
 	BasicView view() override {
 		BasicView view;
-		for (auto item : instances) {
-			if (item.id != 0) {
-				view.push_back(item.id);
+		if (instances.size() > 0) {
+			for (std::size_t x = 0; x < instances.size(); ++x) {
+				auto& item = instances[x];
+				if (item.id != NULL_ID) {
+					view.emplace_back(item.id);
+				}
 			}
 		}
 		return view;
 	}
 
 	void internalRemove(Entity pos, Entity entity) override {
-		instances[pos].id = 0;
+		auto& poolInstance = instances[pos];
+		for (const auto& removeEvent : removeEvents) {
+			//removeEvent(entity, poolInstance.instance);
+		}
+		poolInstance.id = NULL_ID;
 	}
 
-	void assign(Entity entity, Type type) {
+	void assign(Entity entity, Type* type) {
 		this->assure(entity);
 		auto index = EntitySet::index(entity);
 		if (instances.size() <= index) {
 			instances.resize(index + 1);
 		}
-		instances[index] = {entity, type};
+		instances[index] = { entity, std::unique_ptr<Type>(type)};
+
+		for (const auto& assignEvent : assignEvents) {
+			//assignEvent(entity, type);
+		}
 	}
+
+	void registerOnAssignEvent(std::function<void(Entity, std::unique_ptr<Type>&)> assignEvent) {
+		assignEvents.push_back(assignEvent);
+	}
+
+	void registerOnRemoveEvent(std::function<void(Entity, std::unique_ptr<Type>&)> removeEvent) {
+		removeEvents.push_back(removeEvent);
+	}
+
 	std::vector<PoolItem<Type>> instances;
+
+	std::vector<std::function<void(Entity, std::unique_ptr<Type>&)>> assignEvents;
+	std::vector<std::function<void(Entity, std::unique_ptr<Type>&)>> removeEvents;
 private:
-	
+
 };
 
 struct PoolData {
 	EntitySet* pool;
+};
+
+class Generic {
+};
+
+template <typename Type>
+class Singleton : public Generic {
+public:
+	std::unique_ptr<Type> instance;
+
+	std::unique_ptr<Type> & get() {		
+		return instance;
+	}
+};
+
+struct SingletonData {
+	Generic* data;
 };
 
 
@@ -173,7 +229,7 @@ class ECS {
 public:
 
 	~ECS() {
-		for (auto po : pools) {
+		for (const auto& po : pools) {
 			delete po.pool;
 		}
 	}
@@ -196,63 +252,83 @@ public:
 	}
 
 	template <typename Type>
-	void assign(Entity entity, Type instance) {
-		auto comp = getComponent<Type>();	
-		this->assure<Type>(comp).assign(entity, instance);
+	void assign(Entity entity, Type* instance) {
+		auto comp = getComponent<Type>();
+		auto& pool = this->assure<Type>(comp);
+		pool.assign(entity, instance);
+	}
+
+	template <typename Type>
+	void assign(Type* instance) {
+		auto comp = getComponent<Type>();
+		this->assureSingleton<Type>(comp).instance = std::unique_ptr<Type>(instance);
 	}
 
 	template <typename Type>
 	void assign(Entity entity, int component, Type instance) {
-		this->assure<Type>(component).assign(entity, instance);		
+		this->assure<Type>(component).assign(entity, instance);
 	}
 
 	template <typename Type>
 	Component getComponent() {
-		return getComponent(typeid(Type).name());
+		return getComponent<Type>(typeid(Type).name());
 	}
 
+	template <typename Type>
 	Component getComponent(std::string name) {
-		return componentIdPool.tryGetId(name);
+		bool genarated = false;
+		auto component = componentIdPool.tryGetId(name, genarated);
+		if (genarated) {
+			this->assure<Type>(component);
+		}
+		return component;
 	}
 
 	bool isComponent(std::string name) {
 		return componentIdPool.isComponent(name);
 	}
-	
+
 	void destroy(Entity entity) {
 		for (auto x = 0; x < pools.size(); ++x) {
-			pools[x].pool->remove(entity);			
+			pools[x].pool->remove(entity);
 		}
 		entityIdPool.freeEntity(entity);
 	}
 
 	template <typename Type>
-	Type& get(Entity entity) {
-		auto component = componentIdPool.tryGetId(typeid(Type).name());
+	std::unique_ptr<Type> & get(Entity entity) {
+		bool generated;
+		auto component = componentIdPool.tryGetId(typeid(Type).name(), generated);
 		return this->assure<Type>(component).get(entity);
 	}
 
 	template <typename Type>
-	Type & get(Entity entity, Component component) {
+	std::unique_ptr<Type>& get() {
+		auto comp = getComponent<Type>();		
+		return this->assureSingleton<Type>(comp).get();
+	}
+
+	template <typename Type>
+	std::unique_ptr<Type>& get(Entity entity, Component component) {
 		return this->assure<Type>(component).get(entity);
 	}
 
 	template <typename T>
-	bool remove(Entity entity) {
+	void remove(Entity entity) {
 		return remove(entity, componentIdPool.tryGetId(typeid(T).name()));
 	}
 
 	void remove(Entity entity, Component component) {
-		pools[component].pool->remove(entity);		
+		pools[component].pool->remove(entity);
 	}
 
-	template <typename Type>
-	void sort(BasicView& basicBiew, std::function<bool(Type*, Type*)> predicate) {
+	/*template <typename Type>
+	void sort(BasicView& basicBiew, std::function<bool(Type&, Type&)> predicate) {
 		auto component = getComponent<Type>();
 		std::sort(basicBiew.begin(), basicBiew.end(), [this, component, &predicate](auto v1, auto v2) {
 			return predicate(this->get<Type>(v1, component), this->get<Type>(v2, component));
 		});
-	}
+	}*/
 
 
 	template <typename T>
@@ -292,24 +368,47 @@ public:
 		return internalView(comps);
 	}
 
+	template <typename Type>
+	void registerOnAssignEvent(std::function<void(Entity, Type)> assignEvent) {
+		auto component = getComponent<Type>();
+		this->assure<Type>(component).registerOnAssignEvent(assignEvent);
+	}
+
+	template <typename Type>
+	void registerOnRemoveEvent(std::function<void(Entity, Type)> removeEvent) {
+		auto component = getComponent<Type>();
+		this->assure<Type>(component).registerOnRemoveEvent(removeEvent);
+	}
+
 private:
 	mutable std::vector<PoolData> pools;
 	ComponentIdPool componentIdPool;
-	EntityIdPool entityIdPool;	
+	EntityIdPool entityIdPool;
+	std::unordered_map<Component, SingletonData> singletons;
 
-	
+
 	template <typename Type>
-	PoolHandler<Type> & assure(Component component) {
+	Singleton<Type>& assureSingleton(Component component) {
+		if (singletons.count(component) <= 0) {
+			singletons[component] = { new Singleton<Type>() };
+		}
+		return static_cast<Singleton<Type>&>(*singletons[component].data);
+	}
+
+	template <typename Type>
+	PoolHandler<Type>& assure(Component component) {
 		if (pools.size() <= component) {
 			pools.resize(component + 1);
-			pools[component] = { new PoolHandler<Type>()};
+		}
+		if (pools[component].pool == nullptr) {
+			pools[component] = { new PoolHandler<Type>() };
 		}
 		return static_cast<PoolHandler<Type>&>(*pools[component].pool);
 	}
 
 	BasicView internalView(std::vector<Component> comps) {
-		BasicView entities;
-		if (comps.size() > 1) {			
+		if (comps.size() > 1) {
+			BasicView entities;
 			auto first = pools[comps[0]].pool;
 			auto pos = 0;
 
@@ -321,9 +420,9 @@ private:
 			}
 			comps.erase(comps.begin() + pos);
 
-			for (auto entity : first->view()) {
+			for (const auto& entity : first->view()) {
 				bool found = true;
-				for (auto comp : comps) {
+				for (const auto& comp : comps) {
 					if (!pools[comp].pool->entityIn(entity)) {
 						found = false;
 						break;

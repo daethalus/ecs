@@ -1,79 +1,110 @@
-#include "ecs_old.h"
-//#include "ecs.h"
+//#include "ecs_old.h"
+#include "ecs.h"
 
 #include <iostream>
 #include <chrono>
+#include <unordered_map>
+#include "position.h"
+#include <vector>
+#include <unordered_set>
+#include <memory>
+#include <thread>
 
-struct ComponentTest {
-	int value;
+
+struct Game {
+	int value = 0;
 };
 
-struct Another {
-	bool pair;
+
+struct Test {
+	int asd = 0;
 };
+
+
+
+
 
 int main() {
-
 	ECS ecs;
 
-	auto component = ecs.getComponent<ComponentTest>();
-	auto anotherComp = ecs.getComponent<Another>();
-
-	auto t0 = std::chrono::high_resolution_clock::now();
-
-	for (int x = 0; x <= 999999; x++) {
+	int x = 0;
+	while (x < 1000000) {
 		auto entity = ecs.create();
-		//ecs.assign<ComponentTest>(entity, component, { x });
-		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
+		ecs.assign<Game>(entity, new Game{ x });
+		x++;
 	}
 
-	auto entities = ecs.view<ComponentTest>();
-	for (auto entity : entities) {
-		ecs.destroy(entity);
+	std::thread t([&ecs]() {
+		auto& value = ecs.get<Game>();		
+		while (true) {
+			auto view = ecs.view<Game>();
+			long sum = 0;
+			int nulls = 0;
+			for (auto entity : view) {
+				auto &game = ecs.get<Game>(entity);				
+				if (game) {
+					if (game->value >= 0) {
+						sum = sum + game->value;
+					} else {
+						std::cout << "wtf" << std::endl;
+					}
+					
+				} else {
+					nulls++;
+				}
+			}
+			std::cout << sum << " nulls " << nulls << std::endl;
+			_sleep(10);
+		}		
+	});
+	t.detach();
+
+	_sleep(1000);
+
+	auto view = ecs.view<Game>();
+	for (auto entity : view) {
+		auto& game = ecs.get<Game>(entity);
+		if ((game->value % 2) == 0) {
+			ecs.destroy(entity);
+		}
 	}
 
-	for (int x = 0; x <= 5; x++) {
+	std::cout << "deleted" << std::endl;
+
+	_sleep(5000);
+
+	x = 0;
+
+	while (x < 500000) {
 		auto entity = ecs.create();
-		//ecs.assign<ComponentTest>(entity, component, { x });
-		//ecs.assign<Another>(entity, anotherComp, { x % 2 == 0 });
-		//ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
-		//ecs.assign<Another>(entity, new Another{ x % 2 == 0});
+		ecs.assign<Game>(entity, new Game{ x });
+		x++;
 	}
+
+	std::cout << "created" << std::endl;
+
+	//ecs.destroy(entity);
 
 	
 
-	for (int x = 0; x <= 999999; x++) {
-		auto entity = ecs.create();
-		//ecs.assign<ComponentTest>(entity, component, { x });
-		ecs.assign<ComponentTest>(entity, new ComponentTest{ x });
-	}
+	auto t0 = std::chrono::high_resolution_clock::now();
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 
-	entities = ecs.view<ComponentTest>();
-
-	int sum = 0;
-
-	for (auto entity : entities) {		
-		sum = sum + ecs.get<ComponentTest>(entity, component)->value;
-	}
-
-	std::cout << sum << std::endl;
 
 	auto t2 = std::chrono::high_resolution_clock::now();
-
 
 	auto t3 = std::chrono::high_resolution_clock::now();
 
 
-	std::cout << "internal took to instace: "
+	/*std::cout << "internal took to instace: "
 		<< std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()
 		<< " milliseconds. to interate: "
 		<< std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
 		<< " milliseconds and "
 		<< std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count()
-		<< " milliseconds to delete "
-		<< " \n";
+		<< " milliseconds to find using map "
+		<< " \n";*/
 
 	while (true) {
 		_sleep(1000);
